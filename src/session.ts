@@ -7,6 +7,8 @@ export interface McpSessionManagerOptions {
   bearerToken?: string;
   /** Passed through to linkAccount() when bearerToken isn't set. */
   link?: Omit<LinkOptions, "mcpUrl">;
+  /** Advertise MCP Apps (`ui://` views) support to the server. Default true; false tests a server's text fallback. */
+  ui?: boolean;
 }
 
 /** Owns account linking + the MCP connection, lazily and once, re-linking on
@@ -34,7 +36,7 @@ export class McpSessionManager {
   async ensureSession(): Promise<McpSession> {
     if (this.session) return this.session;
     const token = await this.accessToken();
-    this.session = await connectMcp(this.options.mcpUrl, token);
+    this.session = await connectMcp(this.options.mcpUrl, token, { ui: this.options.ui });
     return this.session;
   }
 

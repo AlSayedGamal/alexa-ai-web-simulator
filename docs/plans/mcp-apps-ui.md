@@ -1,6 +1,6 @@
 # Plan: MCP Apps (`ui://`) support in the simulator
 
-**Status:** draft plan, no code yet. Feedback wanted before implementation starts.
+**Status:** implemented in this PR. See "Implementation notes" at the end for what differs from the plan and what is not done.
 
 ## Why
 
@@ -180,3 +180,17 @@ Against the hackathon MCP server, which already exposes five `ui://` views (reca
 ## Definition of done
 
 Against the hackathon server, the five manual checks above pass; `SIM_UI=off` restores the old behaviour; the new tests and the drift check are in CI; the README documents `SIM_UI`, the second port, and what is and isn't emulated.
+
+## Implementation notes
+
+What was built, and where it differs from the plan above.
+
+- **Stacking.** Phase 0 is its own PR (#4). This branch is stacked on the TTS PR (#3), which is stacked on #4, because all three edit `server.ts`, `public/index.html` and the README; stacking avoids conflicts. Merge in that order.
+- **Phases 1 to 4 are done in this one PR:** capture full results and advertise the capability (`src/mcp.ts`, `src/ui/meta.ts`); resolve views and proxy call-backs (`src/ui/resolve.ts`, `src/ui/route.ts`, `src/ui/csp.ts`); the sandbox proxy on `port + 1` (`src/ui/sandbox.ts`); the browser host on the official `AppBridge` (`host/`, bundled to a committed `public/host.js` with a drift check in `npm run check`); page layout, CSP-violation notes, tool badges and a screen-shape picker.
+- **Decisions the plan left open:** two-origin sandbox (not `srcdoc`) and the bundled official `AppBridge` (not a hand-written host). Both worked, so neither fallback was needed.
+- **The spike:** (1) the SDK's `Client` accepts and sends `capabilities.extensions`, confirmed against a real fixture server; (2) `AppBridge` bundles for the browser at about 330 KB once zod's unused locales are dropped; (3) the two-origin proxy works with `AppBridge` on localhost; (4) **not done for Cursor**: I did not inspect what Cursor's stream returns, and the code assumes it doesn't carry the full result, so views show a note with that brain instead of trying.
+- **Not done from the plan:** the optional `mcp-voice-simulator-conformance --ui` check; a Playwright smoke test; caching resources per session (each turn re-reads the view, so a server that changes a view is always picked up).
+- **Added beyond the plan:** the log notes a blocked `eval` quietly rather than as a violation, because zod (which the ext-apps `App` class uses) probes for it and falls back, so it would otherwise flag every view.
+- **Verified in a real Chrome**, with a real fixture MCP server and a view built with the real ext-apps `App`: the view mounts through both iframes and receives `tool-input` then `tool-result`; a view's `tools/call` for an app-only tool works and shows as "from view"; a call to a model-only tool is refused with the visibility error; a `fetch` to an undeclared origin is blocked by the CSP and reported; `ui/open-link` asks first and opens an `https` link; a `ui/message` ("Please change the card title to Blue") runs as a new turn and the screen shows the new view; a wrong-MIME view and a missing resource show notes with no view; reset clears the view; `SIM_UI=off` gives text only, no sandbox port and no badges.
+- **Not verified:** a real Alexa+ webview (unknowable from here); a real Cursor run; permissions beyond `clipboardWrite` reaching the browser; any view that needs `allow-same-origin` semantics beyond what the sandbox proxy grants.
+

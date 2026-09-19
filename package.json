@@ -26,9 +26,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p host/tsconfig.json --noEmit",
     "test": "vitest run",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run verify:host && npm run typecheck && npm test",
+    "build:host": "node scripts/build-host.mjs",
+    "verify:host": "node scripts/build-host.mjs --check"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.0.0"
@@ -48,7 +50,10 @@
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
     "@cursor/sdk": "^1.0.31",
+    "@modelcontextprotocol/ext-apps": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@types/node": "^22.15.0",
+    "esbuild": "^0.28.2",
     "tsx": "^4.20.0",
     "typescript": "^5.8.0",
     "vitest": "^4.1.11"

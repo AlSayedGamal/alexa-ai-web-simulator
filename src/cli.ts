@@ -23,10 +23,20 @@ const anthropicKey = env("ANTHROPIC_API_KEY");
 const cursorKey = env("CURSOR_API_KEY");
 const forcedBrain = env("SIM_BRAIN");
 
+const simUi = (env("SIM_UI") ?? "on").toLowerCase();
+if (simUi !== "on" && simUi !== "off") fail(`SIM_UI must be "on" or "off" (got "${simUi}").`);
+const uiEnabled = simUi === "on";
+const sandboxPortRaw = env("SIM_SANDBOX_PORT");
+const sandboxPort = sandboxPortRaw === undefined ? undefined : Number(sandboxPortRaw);
+if (sandboxPort !== undefined && (!Number.isInteger(sandboxPort) || sandboxPort < 0 || sandboxPort > 65535)) {
+  fail(`SIM_SANDBOX_PORT must be a port number (got "${sandboxPortRaw}").`);
+}
+
 const sessionManager = new McpSessionManager({
   mcpUrl,
   bearerToken: env("MCP_BEARER_TOKEN"),
   link: { clientId: env("MCP_CLIENT_ID") },
+  ui: uiEnabled,
 });
 
 function pickBrainName(): "claude" | "cursor" {
@@ -69,9 +79,11 @@ createServer({
   tts: tts.provider,
   ttsMaxChars: tts.maxChars,
   ttsCacheEntries: tts.cacheEntries,
+  ui: uiEnabled ? { sandboxPort } : false,
 });
 console.log(`mcp-voice-simulator: http://127.0.0.1:${port}`);
 console.log(`  MCP server: ${mcpUrl}`);
 console.log(`  Brain: ${brainName}`);
 console.log(`  Voice: ${tts.provider?.name ?? "browser"}`);
+console.log(`  Views (MCP Apps): ${uiEnabled ? "on" : "off"}`);
 if (tts.hint) console.log(`  Note: ${tts.hint}`);

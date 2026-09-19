@@ -1,6 +1,8 @@
 /**
- * HTTP server: a tiny API (`/api/status`, `/api/turn`, `/api/reset`, `/api/tts`)
- * plus the static browser UI in public/, wired to a Brain and an McpSessionManager.
+ * HTTP server: a tiny API (`/api/status`, `/api/turn`, `/api/reset`, `/api/tts`,
+ * `/api/ui/tool-call`) plus the static browser UI in public/, wired to a Brain
+ * and an McpSessionManager. With MCP Apps view support on, it also runs the
+ * sandbox proxy on a second port (see ui/sandbox.ts).
  */
 import { readFile } from "node:fs/promises";
 import http from "node:http";
@@ -12,6 +14,8 @@ import { HTML_SECURITY_HEADERS, guardRequest } from "./security.js";
 import type { McpSessionManager } from "./session.js";
 import { createTtsRoute } from "./tts/route.js";
 import type { TtsProvider } from "./tts/types.js";
+import { createUiRoute } from "./ui/route.js";
+import { createSandboxServer } from "./ui/sandbox.js";
 
 const DEFAULT_PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
 
@@ -26,9 +30,20 @@ export interface CreateServerOptions {
   ttsMaxChars?: number;
   /** How many synthesized clips to keep in memory. Default 20; 0 disables. */
   ttsCacheEntries?: number;
+  /**
+   * MCP Apps `ui://` view support. On by default; `false` shows text only, as a
+   * host without MCP Apps would. The sandbox proxy listens on `sandboxPort`
+   * (default: the server's port + 1) because the spec requires the host and the
+   * sandbox to have different origins.
+   */
+  ui?: boolean | { sandboxPort?: number };
 }
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
+  // A handler that fails after it started answering (a static file vanishing
+  // between writeHead and the read) can't send a fresh status; end the response
+  // instead of throwing, which would leave the connection open.
+  if (res.headersSent) return void res.end();
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
 }
@@ -63,6 +78,25 @@ export function createServer(options: CreateServerOptions): http.Server {
     cacheEntries: options.ttsCacheEntries ?? 20,
   });
 
+  const uiEnabled = options.ui !== false;
+  const mainPort = options.port ?? 8790;
+  const sandboxPort =
+    typeof options.ui === "object" && options.ui.sandboxPort !== undefined
+      ? options.ui.sandboxPort
+      : mainPort === 0
+        ? 0
+        : mainPort + 1;
+  const sandbox = uiEnabled ? createSandboxServer({ port: sandboxPort }) : undefined;
+  const ui = createUiRoute({
+    enabled: uiEnabled,
+    sessionManager: options.sessionManager,
+    brainName: options.brain.name,
+    sandboxOrigin: () => {
+      const address = sandbox?.address();
+      return typeof address === "object" && address ? `http://127.0.0.1:${address.port}` : undefined;
+    },
+  });
+
   const server = http.createServer(async (req, res) => {
     try {
       // The port is only known once we're listening (it may have been 0).
@@ -81,7 +115,12 @@ export function createServer(options: CreateServerOptions): http.Server {
             mcpUrl: options.sessionManager.mcpUrl,
             brain: options.brain.name,
             tts: { name: tts.name },
-            tools: session.tools.map((t) => ({ name: t.name, description: t.description ?? "" })),
+            ui: ui.status(),
+            tools: session.tools.map((t) => ({
+              name: t.name,
+              description: t.description ?? "",
+              ...(ui.toolView(t) ? { ui: ui.toolView(t) } : {}),
+            })),
           });
         } catch (err) {
           return json(res, 200, {
@@ -89,6 +128,7 @@ export function createServer(options: CreateServerOptions): http.Server {
             mcpUrl: options.sessionManager.mcpUrl,
             brain: options.brain.name,
             tts: { name: tts.name },
+            ui: ui.status(),
             error: err instanceof Error ? err.message : String(err),
           });
         }
@@ -102,11 +142,21 @@ export function createServer(options: CreateServerOptions): http.Server {
         const cleaned = body.utterance.replace(/^\s*(alexa|hey\s+\w+)[,.!]?\s*/i, "").trim();
         const { reply, trace } = await options.brain.turn(cleaned);
         lastAwaitingConfirm = /\b(confirm|say yes|shall i|want me to)\b/i.test(reply);
-        return json(res, 200, { reply, trace, brain: options.brain.name, awaitingConfirm: lastAwaitingConfirm });
+        return json(res, 200, {
+          reply,
+          trace,
+          brain: options.brain.name,
+          awaitingConfirm: lastAwaitingConfirm,
+          ...(await ui.forTurn(trace)),
+        });
       }
 
       if (req.method === "POST" && path === "/api/tts") {
         return await tts.handle(res, await readJsonBody(req));
+      }
+
+      if (req.method === "POST" && path === "/api/ui/tool-call") {
+        return await ui.handleToolCall(res, await readJsonBody(req));
       }
 
       if (req.method === "POST" && path === "/api/reset") {
@@ -125,6 +175,12 @@ export function createServer(options: CreateServerOptions): http.Server {
         return res.end(await readFile(join(publicDir, "tts.js")));
       }
 
+      if (req.method === "GET" && path === "/host.js") {
+        const file = await readFile(join(publicDir, "host.js"));
+        res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "x-content-type-options": "nosniff" });
+        return res.end(file);
+      }
+
       json(res, 404, { error: "not found" });
     } catch (err) {
       if (err instanceof HttpError) return json(res, err.status, { error: err.message });
@@ -135,6 +191,7 @@ export function createServer(options: CreateServerOptions): http.Server {
     }
   });
 
-  server.listen(options.port ?? 8790, "127.0.0.1");
+  server.on("close", () => sandbox?.close());
+  server.listen(mainPort, "127.0.0.1");
   return server;
 }

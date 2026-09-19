@@ -30,6 +30,21 @@
   .confirm { margin-top: 3cqw; display: none; gap: 2cqw; }
   .screen[data-confirm="true"] .confirm { display: flex; }
 
+  /* An MCP Apps view, when the last turn produced one: it fills the screen, and the reply becomes a caption. */
+  .view { display: none; position: absolute; left: 0; right: 0; top: 0; bottom: 0; z-index: 1; }
+  .view iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .caption { display: none; position: absolute; left: 0; right: 0; bottom: 0; height: 2.6em; padding: 0 3%; align-items: center;
+             color: var(--muted); font-size: 13px; background: rgba(0,0,0,.4); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; z-index: 2; }
+  .screen[data-ui="true"] { padding: 0; }
+  .screen[data-ui="true"] .view { display: block; bottom: 2.6em; }
+  .screen[data-ui="true"] .caption { display: flex; }
+  .screen[data-ui="true"] .heard, .screen[data-ui="true"] .reply, .screen[data-ui="true"] .confirm { display: none !important; }
+  .device[data-size="small"] { max-width: 520px; margin: 0 auto; } .device[data-size="small"] .screen { aspect-ratio: 3 / 2; }
+  .device[data-size="tall"] { max-width: 420px; margin: 0 auto; } .device[data-size="tall"] .screen { aspect-ratio: 3 / 4; }
+  .size { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; margin-left: auto; }
+  select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font: inherit; font-size: 13px; }
+  .note { color: var(--muted); font-size: 12px; }
+  .note.warn { color: #d29922; }
   .controls { display: flex; gap: 8px; margin-top: 16px; }
   input[type=text] { flex: 1; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: inherit; }
   button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; font: inherit; cursor: pointer; }
@@ -69,6 +84,8 @@
           <button data-say="Cancel">Cancel</button>
         </div>
         <div class="ring"></div>
+        <div class="view" id="view"></div>
+        <div class="caption" id="caption"></div>
       </div>
       <form class="controls" id="form">
         <button type="button" id="mic" title="Speak" aria-pressed="false">🎤</button>
@@ -77,7 +94,15 @@
         <button type="button" id="speak" aria-pressed="true" title="Speak replies aloud">🔊</button>
         <button type="button" id="reset" title="Start a new conversation">↺</button>
       </form>
-      <div class="chips" id="chips"></div>
+      <div class="chips" id="chips">
+      </div>
+      <label class="size">Screen
+        <select id="size" title="Try a view at different screen shapes">
+          <option value="">Default (2:1)</option>
+          <option value="small">Small (3:2)</option>
+          <option value="tall">Tall (3:4)</option>
+        </select>
+      </label>
     </div>
   </section>
 
@@ -110,6 +135,9 @@ const $ = (id) => document.getElementById(id);
 const screen = $("screen"), input = $("input"), send = $("send");
 let speakReplies = true;
 let ttsNote = ""; // why the server voice fell back to the browser voice, if it did
+let uiStatus = { enabled: false }; // MCP Apps view support, from /api/status
+let hostModule = null; // /host.js, loaded the first time a view is shown
+let mountedView = null;
 let busy = false;
 let toolChipsBuilt = false;
 
@@ -121,10 +149,13 @@ async function loadStatus() {
   $("status").innerHTML = s.linked
     ? `<span><i class="dot ok"></i>Account linked</span><span>${esc(s.mcpUrl ?? "")}</span>` +
       `<span>Brain: ${esc(s.brain ?? "")}</span><span>Voice: ${esc(s.tts?.name ?? "browser")}</span>` +
+      `<span>Views: ${s.ui?.enabled ? "on" : "off"}</span>` +
       (ttsNote ? `<span><i class="dot bad"></i>${esc(ttsNote)}</span>` : "")
     : `<span><i class="dot bad"></i>Not connected</span><span>${esc(s.error ?? "")}</span>`;
   speaker.setProvider(s.tts?.name ?? "browser");
-  $("tools").innerHTML = (s.tools ?? []).map((t) => `<span title="${esc(t.description)}">${esc(t.name)}</span>`).join("");
+  uiStatus = s.ui ?? { enabled: false };
+  $("tools").innerHTML = (s.tools ?? []).map((t) =>
+    `<span title="${esc(t.description)}${t.ui ? ` — view: ${esc(t.ui)}` : ""}">${esc(t.name)}${t.ui ? " 🖼" : ""}</span>`).join("");
   if (!toolChipsBuilt && (s.tools ?? []).length) {
     toolChipsBuilt = true;
     $("chips").innerHTML = s.tools.slice(0, 4).map((t) =>
@@ -155,20 +186,81 @@ function speak(text) {
   speaker.speak(text);
 }
 
-function logTurn(utterance, data) {
-  const calls = (data.trace ?? []).map((t) =>
-    `<details><summary class="${t.isError ? "error" : ""}">${esc(t.tool)} <span class="ms">${t.ms} ms</span></summary>` +
-    `<pre>${esc(JSON.stringify(t.args))}\n→ ${esc(t.text)}</pre></details>`).join("");
+function callDetails(t) {
+  const tag = t.origin === "view" ? " <span class=\"ms\">from view</span>" : "";
+  const view = t.ui ? " 🖼" : "";
+  return `<details><summary class="${t.isError ? "error" : ""}">${esc(t.tool)}${view}${tag} <span class="ms">${t.ms} ms</span></summary>` +
+    `<pre>${esc(JSON.stringify(t.args))}\n→ ${esc(t.text)}</pre></details>`;
+}
+
+function appendLog(html) {
   const el = document.createElement("div");
   el.className = "turn";
-  el.innerHTML = `<div class="you">You: ${esc(utterance)}</div><div class="reply">${esc(data.reply ?? data.error ?? "")}</div>${calls}`;
+  el.innerHTML = html;
   $("log").append(el);
   $("log").scrollTop = $("log").scrollHeight;
 }
 
-async function say(utterance) {
+const logNote = (text, warn = true) => appendLog(`<div class="note${warn ? " warn" : ""}">${esc(text)}</div>`);
+const logViewCall = (trace) => trace && appendLog(callDetails(trace));
+const logCsp = ({ directive, blockedUri }) =>
+  blockedUri === "eval"
+    // Libraries such as zod probe for eval and fall back when it's blocked, so this is
+    // usually harmless; it only matters if the view actually misbehaves.
+    ? logNote("The view's CSP blocked eval (script-src has no 'unsafe-eval', as the MCP Apps spec requires). Libraries such as zod probe for it and carry on, so this only matters if your view misbehaves.", false)
+    : logNote(`The view broke its Content-Security-Policy: "${directive}" blocked ${blockedUri || "an inline resource"}. Declare the origin in the resource's _meta.ui.csp if it's intended.`);
+
+function logTurn(utterance, data, opts = {}) {
+  const calls = (data.trace ?? []).map(callDetails).join("");
+  const notes = (data.uiWarnings ?? []).map((w) => `<div class="note warn">${esc(w)}</div>`).join("");
+  appendLog(`<div class="you">You${opts.fromView ? " (from a view)" : ""}: ${esc(utterance)}</div><div class="reply">${esc(data.reply ?? data.error ?? "")}</div>${calls}${notes}`);
+}
+
+// ---- MCP Apps views: the page is the host (the protocol lives in /host.js).
+async function clearView() {
+  screen.dataset.ui = "false";
+  const view = mountedView;
+  mountedView = null;
+  await view?.destroy();
+  $("view").replaceChildren();
+}
+
+async function showView(ui, reply) {
+  await clearView();
+  if (!ui || !uiStatus.enabled || !uiStatus.sandboxOrigin) return;
+  try {
+    hostModule ??= await import("/host.js");
+    const handlers = hostModule.createHostHandlers({
+      fetchImpl: (...args) => fetch(...args),
+      say: (text) => say(text, { fromView: true }),
+      onViewCall: logViewCall,
+      confirmOpen: (url) => confirm(`This view wants to open:\n${url}`),
+      openWindow: (url) => window.open(url, "_blank", "noopener,noreferrer"),
+    });
+    $("caption").textContent = reply ?? "";
+    screen.dataset.ui = "true";
+    mountedView = await hostModule.mountView({
+      container: $("view"),
+      ui,
+      sandboxOrigin: uiStatus.sandboxOrigin,
+      handlers,
+      maxHeight: Math.max(120, $("view").clientHeight),
+      onCspViolation: logCsp,
+      onProblem: (message) => logNote(message),
+    });
+  } catch (err) {
+    logNote(`Could not show the view for "${ui.tool}": ${err.message}`);
+    await clearView();
+  }
+}
+
+async function say(utterance, opts = {}) {
   utterance = utterance.trim();
-  if (!utterance || busy) return;
+  if (!utterance) return;
+  if (busy) {
+    if (opts.fromView) logNote("A view sent a message while a turn was still running, so it was dropped.");
+    return;
+  }
   busy = true; send.disabled = true;
   $("heard").textContent = `“${utterance}”`;
   setState("thinking");
@@ -178,12 +270,14 @@ async function say(utterance) {
     if (!res.ok) throw new Error(data.error);
     $("reply").textContent = data.reply;
     screen.dataset.confirm = String(data.awaitingConfirm);
-    logTurn(utterance, data);
+    logTurn(utterance, data, opts);
     speak(data.reply);
+    await showView(data.ui, data.reply);
   } catch (err) {
     $("reply").textContent = "Sorry, something went wrong.";
-    logTurn(utterance, { error: err.message });
+    logTurn(utterance, { error: err.message }, opts);
     screen.dataset.confirm = "false";
+    await clearView();
   } finally {
     busy = false; send.disabled = false; setState("idle");
     input.value = "";
@@ -201,8 +295,13 @@ $("speak").addEventListener("click", (e) => {
   e.currentTarget.setAttribute("aria-pressed", String(speakReplies));
   speaker.setEnabled(speakReplies);
 });
+$("size").addEventListener("change", (e) => {
+  const device = document.querySelector(".device");
+  if (e.target.value) device.dataset.size = e.target.value; else delete device.dataset.size;
+});
 $("reset").addEventListener("click", async () => {
   speaker.cancel();
+  await clearView();
   await fetch("/api/reset", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   $("log").innerHTML = ""; $("heard").textContent = "";
   $("reply").innerHTML = '<span class="hint">Type or say what you\'d like, e.g. one of the discovered tools on the right.</span>';
