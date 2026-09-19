@@ -1,6 +1,6 @@
 /**
- * HTTP server: a tiny API (`/api/status`, `/api/turn`, `/api/reset`) plus the
- * static browser UI in public/, wired to a Brain and an McpSessionManager.
+ * HTTP server: a tiny API (`/api/status`, `/api/turn`, `/api/reset`, `/api/tts`)
+ * plus the static browser UI in public/, wired to a Brain and an McpSessionManager.
  */
 import { readFile } from "node:fs/promises";
 import http from "node:http";
@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 import type { Brain } from "./brains/types.js";
 import { HTML_SECURITY_HEADERS, guardRequest } from "./security.js";
 import type { McpSessionManager } from "./session.js";
+import { createTtsRoute } from "./tts/route.js";
+import type { TtsProvider } from "./tts/types.js";
 
 const DEFAULT_PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
 
@@ -18,6 +20,12 @@ export interface CreateServerOptions {
   brain: Brain;
   port?: number;
   publicDir?: string;
+  /** Server-side voice (e.g. ElevenLabs). Omit to use the browser's own, as before. */
+  tts?: TtsProvider;
+  /** Longest reply sent to the TTS provider, in characters. Default 500. */
+  ttsMaxChars?: number;
+  /** How many synthesized clips to keep in memory. Default 20; 0 disables. */
+  ttsCacheEntries?: number;
 }
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
@@ -49,6 +57,11 @@ async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
 export function createServer(options: CreateServerOptions): http.Server {
   const publicDir = options.publicDir ?? DEFAULT_PUBLIC_DIR;
   let lastAwaitingConfirm = false;
+  const tts = createTtsRoute({
+    provider: options.tts,
+    maxChars: options.ttsMaxChars ?? 500,
+    cacheEntries: options.ttsCacheEntries ?? 20,
+  });
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -67,6 +80,7 @@ export function createServer(options: CreateServerOptions): http.Server {
             linked: true,
             mcpUrl: options.sessionManager.mcpUrl,
             brain: options.brain.name,
+            tts: { name: tts.name },
             tools: session.tools.map((t) => ({ name: t.name, description: t.description ?? "" })),
           });
         } catch (err) {
@@ -74,6 +88,7 @@ export function createServer(options: CreateServerOptions): http.Server {
             linked: false,
             mcpUrl: options.sessionManager.mcpUrl,
             brain: options.brain.name,
+            tts: { name: tts.name },
             error: err instanceof Error ? err.message : String(err),
           });
         }
@@ -90,6 +105,10 @@ export function createServer(options: CreateServerOptions): http.Server {
         return json(res, 200, { reply, trace, brain: options.brain.name, awaitingConfirm: lastAwaitingConfirm });
       }
 
+      if (req.method === "POST" && path === "/api/tts") {
+        return await tts.handle(res, await readJsonBody(req));
+      }
+
       if (req.method === "POST" && path === "/api/reset") {
         await options.brain.reset?.();
         lastAwaitingConfirm = false;
@@ -99,6 +118,11 @@ export function createServer(options: CreateServerOptions): http.Server {
       if (req.method === "GET" && (path === "/" || path === "/index.html")) {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", ...HTML_SECURITY_HEADERS });
         return res.end(await readFile(join(publicDir, "index.html")));
+      }
+
+      if (req.method === "GET" && path === "/tts.js") {
+        res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "x-content-type-options": "nosniff" });
+        return res.end(await readFile(join(publicDir, "tts.js")));
       }
 
       json(res, 404, { error: "not found" });

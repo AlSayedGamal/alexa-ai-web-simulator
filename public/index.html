@@ -103,10 +103,13 @@
   This tool speaks the published OAuth 2.1 + PKCE and MCP Streamable HTTP specs, nothing more.
 </p>
 
-<script>
+<script type="module">
+import { createSpeaker } from "/tts.js";
+
 const $ = (id) => document.getElementById(id);
 const screen = $("screen"), input = $("input"), send = $("send");
 let speakReplies = true;
+let ttsNote = ""; // why the server voice fell back to the browser voice, if it did
 let busy = false;
 let toolChipsBuilt = false;
 
@@ -117,8 +120,10 @@ async function loadStatus() {
   const s = await (await fetch("/api/status")).json();
   $("status").innerHTML = s.linked
     ? `<span><i class="dot ok"></i>Account linked</span><span>${esc(s.mcpUrl ?? "")}</span>` +
-      `<span>Brain: ${esc(s.brain ?? "")}</span>`
+      `<span>Brain: ${esc(s.brain ?? "")}</span><span>Voice: ${esc(s.tts?.name ?? "browser")}</span>` +
+      (ttsNote ? `<span><i class="dot bad"></i>${esc(ttsNote)}</span>` : "")
     : `<span><i class="dot bad"></i>Not connected</span><span>${esc(s.error ?? "")}</span>`;
+  speaker.setProvider(s.tts?.name ?? "browser");
   $("tools").innerHTML = (s.tools ?? []).map((t) => `<span title="${esc(t.description)}">${esc(t.name)}</span>`).join("");
   if (!toolChipsBuilt && (s.tools ?? []).length) {
     toolChipsBuilt = true;
@@ -139,17 +144,15 @@ const isEcho = (heard) => {
   return h.length > 0 && normalize(lastReply).includes(h);
 };
 
+const speaker = createSpeaker({
+  onStart: () => { rec?.abort(); quietUntil = Infinity; },
+  onEnd: () => { quietUntil = Date.now() + 1500; },
+  onProblem: (err) => { ttsNote = `${err.message} Using the browser voice instead.`; loadStatus(); },
+});
+
 function speak(text) {
   lastReply = text;
-  if (!speakReplies || !("speechSynthesis" in window)) return;
-  rec?.abort();
-  speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  const done = () => { quietUntil = Date.now() + 1500; };
-  utterance.onend = done;
-  utterance.onerror = done;
-  quietUntil = Infinity;
-  speechSynthesis.speak(utterance);
+  speaker.speak(text);
 }
 
 function logTurn(utterance, data) {
@@ -196,9 +199,10 @@ document.addEventListener("click", (e) => {
 $("speak").addEventListener("click", (e) => {
   speakReplies = !speakReplies;
   e.currentTarget.setAttribute("aria-pressed", String(speakReplies));
-  if (!speakReplies) speechSynthesis.cancel();
+  speaker.setEnabled(speakReplies);
 });
 $("reset").addEventListener("click", async () => {
+  speaker.cancel();
   await fetch("/api/reset", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   $("log").innerHTML = ""; $("heard").textContent = "";
   $("reply").innerHTML = '<span class="hint">Type or say what you\'d like, e.g. one of the discovered tools on the right.</span>';
@@ -220,7 +224,7 @@ if (Recognition) {
     say(heard);
   };
   $("mic").addEventListener("click", () => {
-    speechSynthesis.cancel();
+    speaker.cancel();
     quietUntil = 0;
     try { rec.start(); } catch { /* already listening */ }
   });
