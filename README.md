@@ -70,9 +70,57 @@ bearer token and want to skip account linking entirely, set
 | `MCP_CLIENT_ID` | OAuth client id, if your server has no dynamic registration |
 | `MCP_BEARER_TOKEN` | skip account linking entirely |
 | `SIM_PORT` | default `8790` |
+| `SIM_TTS` and `ELEVENLABS_*` | optional server-side voice, see [Voice](#voice-text-to-speech) |
 | `SIM_BRAIN` | force `claude` or `cursor` (default: cursor if `CURSOR_API_KEY` is set, else claude) |
 | `ANTHROPIC_API_KEY`, `SIM_MODEL` | for the Claude brain (`SIM_MODEL` default `claude-sonnet-5`) |
 | `CURSOR_API_KEY`, `SIM_CURSOR_MODEL` | for the Cursor brain (`SIM_CURSOR_MODEL` default `composer-2.5`) |
+
+## Voice (text-to-speech)
+
+By default the simulator speaks replies with your browser's built-in voice, which varies a lot by OS and browser. To use a better one, opt in to a server-side provider. **ElevenLabs** is built in:
+
+```bash
+SIM_TTS=elevenlabs \
+ELEVENLABS_API_KEY=... \
+ELEVENLABS_VOICE_ID=... \
+MCP_URL=https://your-server.example.com/mcp ANTHROPIC_API_KEY=sk-ant-... \
+mcp-voice-simulator
+```
+
+Find a voice id in the ElevenLabs voice library. The key stays in the Node process; the page only ever asks the local server for audio.
+
+| Env var | Purpose |
+| --- | --- |
+| `SIM_TTS` | `browser` (default) or `elevenlabs`. Deliberately opt-in: a lone `ELEVENLABS_API_KEY` only prints a hint. |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | required when `SIM_TTS=elevenlabs` |
+| `ELEVENLABS_MODEL` | optional; ElevenLabs' own default model is used when unset |
+| `ELEVENLABS_OUTPUT_FORMAT` | default `mp3_44100_128`; must be `mp3_*`, `opus_*` or `wav_*` (what a browser `<audio>` can play) |
+| `ELEVENLABS_VOICE_SETTINGS` | optional JSON, e.g. `{"stability":0.5,"speed":1.1}` |
+| `ELEVENLABS_BASE_URL` | optional; for a proxy or a test double |
+| `SIM_TTS_MAX_CHARS` | longest reply sent to the provider (default 500, cut at a sentence end) |
+| `SIM_TTS_CACHE` | how many synthesized clips to keep in memory (default 20; `0` disables), so a repeated reply isn't paid for twice |
+
+**Privacy and cost.** With a server voice on, the text of each reply is sent to the provider. That text can include data your MCP server returned (ticket titles, meeting notes, names), which is why it's off by default. ElevenLabs bills by character; the cap and cache reduce accidental spend but are not a budget.
+
+**If the provider fails** (bad key, out of credits, no network), that reply is spoken with the browser voice instead, the Connection card says why once, and the conversation carries on. After a bad-credentials error the page stops calling the provider until reload.
+
+Add your own provider by implementing `TtsProvider` (one method) and passing it to `createServer`:
+
+```ts
+import { createServer, TtsError, type TtsProvider } from "mcp-voice-simulator";
+
+const myVoice: TtsProvider = {
+  name: "my-voice",
+  cacheKey: "voice-a", // anything besides the text that changes the audio
+  async synthesize(text, { signal }) {
+    const res = await fetch("https://tts.example.com/say", { method: "POST", body: text, signal });
+    if (!res.ok || !res.body) throw new TtsError("server", `TTS failed (${res.status})`, res.status);
+    return { audio: res.body, contentType: "audio/mpeg" };
+  },
+};
+
+createServer({ sessionManager, brain, tts: myVoice });
+```
 
 ## Programmatic API
 
@@ -134,8 +182,10 @@ if (!report.passed) console.error(report.results.filter((r) => !r.pass));
 
 ```text
 public/index.html   Browser UI: device-styled screen, mic (SpeechRecognition),
-                     spoken replies (speechSynthesis), tool-call trace log
-src/server.ts        HTTP API: /api/status, /api/turn, /api/reset
+                     spoken replies, tool-call trace log
+public/tts.js         The page's voice: browser speechSynthesis, or /api/tts audio
+src/server.ts        HTTP API: /api/status, /api/turn, /api/reset, /api/tts
+src/tts/              Text-to-speech providers (ElevenLabs), cache, route
 src/session.ts        Owns account linking + the MCP connection
 src/link.ts            OAuth 2.1 + PKCE loopback flow (RFC 8252-style)
 src/discovery.ts        RFC 9728 / RFC 8414 / RFC 7591 discovery

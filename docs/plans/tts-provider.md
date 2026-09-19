@@ -1,6 +1,6 @@
 # Plan: pluggable text-to-speech (ElevenLabs first)
 
-**Status:** draft plan, no code yet. Feedback wanted before implementation starts.
+**Status:** implemented in this PR (Phases 1 and 2). See "Implementation notes" at the end for what differs from the plan and what is not done.
 
 ## Why
 
@@ -169,3 +169,16 @@ Whichever of this work and the MCP Apps UI work lands first takes this PR.
 ## Definition of done
 
 `SIM_TTS=elevenlabs` speaks replies in the configured voice; unset behaves identically to today; provider failures fall back without breaking a turn; the key never reaches the browser; the new tests are in CI; the README documents the env vars, the privacy note and how to add a provider; Phase 0 is merged.
+
+## Implementation notes
+
+What was built, and where it differs from the plan above.
+
+- **Phase 0** is its own PR (#4, the local API hardening); this branch is stacked on it.
+- **Phases 1 and 2 are done together** in this PR: `src/tts/` (types, ElevenLabs provider, text cap, cache, env config, the `/api/tts` route), `public/tts.js` (the speaker), the `/tts.js` static route, README, and tests.
+- **Small additions to the plan:** `ELEVENLABS_BASE_URL` (a proxy, or a test double), and output formats are validated up front (only `mp3_*`, `opus_*`, `wav_*`, which a browser `<audio>` element can play).
+- **Reset now cancels speech**, as the plan proposed.
+- **Whole-clip playback only.** Phase 3 (streamed playback) is not implemented. The provider interface already returns a stream, so it can be added without changing it.
+- **The spike was not done, because it needs a real ElevenLabs key.** Still open: latency per model and which model to default to (the API's default is used when `ELEVENLABS_MODEL` is unset), what 401/429/out-of-credits bodies really look like (errors are classified by HTTP status and the provider's own message is passed through), the per-request character limit, and whether aborting the upstream request stops billing.
+- **How it was verified.** Unit tests (provider request shape and error mapping, cache, cap, config, the route including upstream cancellation on client disconnect, the speaker with injected fakes). Two of those cancellation tests were confirmed to fail when the cancellation code is removed. Also run in a real Chrome against a local stub of the ElevenLabs API: audio played to its end via a blob URL; reset mid-reply stopped it; the page only ever contacted the local server, and the key was not in the page or `tts.js`; a 401 fell back to the browser voice with one visible message and no further provider calls. Not run: a real ElevenLabs account, and a real microphone (echo suppression is covered by the speaker's `onStart`/`onEnd` contract, not by hearing it).
+

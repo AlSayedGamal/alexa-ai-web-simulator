@@ -4,6 +4,7 @@ import { createCursorBrain } from "./brains/cursor.js";
 import type { Brain } from "./brains/types.js";
 import { createServer } from "./server.js";
 import { McpSessionManager } from "./session.js";
+import { ttsConfigFromEnv, type TtsConfig } from "./tts/config.js";
 
 function env(name: string): string | undefined {
   return process.env[name]?.trim() || undefined;
@@ -54,7 +55,23 @@ const brain: Brain =
         model: env("SIM_MODEL"),
       });
 
-createServer({ sessionManager, brain, port });
+let tts: TtsConfig;
+try {
+  tts = ttsConfigFromEnv(process.env);
+} catch (err) {
+  fail(err instanceof Error ? err.message : String(err));
+}
+
+createServer({
+  sessionManager,
+  brain,
+  port,
+  tts: tts.provider,
+  ttsMaxChars: tts.maxChars,
+  ttsCacheEntries: tts.cacheEntries,
+});
 console.log(`mcp-voice-simulator: http://127.0.0.1:${port}`);
 console.log(`  MCP server: ${mcpUrl}`);
 console.log(`  Brain: ${brainName}`);
+console.log(`  Voice: ${tts.provider?.name ?? "browser"}`);
+if (tts.hint) console.log(`  Note: ${tts.hint}`);

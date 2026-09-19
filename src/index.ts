@@ -13,6 +13,12 @@ export type { Brain, BrainTurnResult } from "./brains/types.js";
 export { createClaudeBrain, type ClaudeBrainOptions } from "./brains/claude.js";
 export { createCursorBrain, type CursorBrainOptions } from "./brains/cursor.js";
 export { createServer, type CreateServerOptions } from "./server.js";
+export { TtsError, type TtsAudio, type TtsErrorKind, type TtsProvider } from "./tts/types.js";
+export {
+  createElevenLabsTts,
+  type ElevenLabsTtsOptions,
+  type ElevenLabsVoiceSettings,
+} from "./tts/elevenlabs.js";
 export {
   checkAlexaPlusConformance,
   type ConformanceReport,
