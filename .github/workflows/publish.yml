@@ -1,0 +1,46 @@
+name: Publish to npm
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.event.pull_request.merged == true && github.event.pull_request.merged_by.login == 'AlSayedGamal'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      # See ci.yml for why --legacy-peer-deps is needed here.
+      - run: npm install --legacy-peer-deps
+
+      - run: npm run check
+
+      - run: npm run build
+
+      - name: Check if this version is already published
+        id: version_check
+        run: |
+          LOCAL_VERSION=$(node -p "require('./package.json').version")
+          if npm view "mcp-voice-simulator@$LOCAL_VERSION" version >/dev/null 2>&1; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npm
+        if: steps.version_check.outputs.already_published == 'false'
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
