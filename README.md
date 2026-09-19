@@ -70,10 +70,31 @@ bearer token and want to skip account linking entirely, set
 | `MCP_CLIENT_ID` | OAuth client id, if your server has no dynamic registration |
 | `MCP_BEARER_TOKEN` | skip account linking entirely |
 | `SIM_PORT` | default `8790` |
+| `SIM_UI`, `SIM_SANDBOX_PORT` | MCP Apps views, see [On-screen views](#on-screen-views-mcp-apps) |
 | `SIM_TTS` and `ELEVENLABS_*` | optional server-side voice, see [Voice](#voice-text-to-speech) |
 | `SIM_BRAIN` | force `claude` or `cursor` (default: cursor if `CURSOR_API_KEY` is set, else claude) |
 | `ANTHROPIC_API_KEY`, `SIM_MODEL` | for the Claude brain (`SIM_MODEL` default `claude-sonnet-5`) |
 | `CURSOR_API_KEY`, `SIM_CURSOR_MODEL` | for the Cursor brain (`SIM_CURSOR_MODEL` default `composer-2.5`) |
+
+## On-screen views (MCP Apps)
+
+MCP servers can return a screen next to their spoken reply: a tool declares `_meta.ui.resourceUri: "ui://…"`, the host fetches that HTML resource and shows it in a sandboxed iframe, and the view talks back over `postMessage` ([MCP Apps](https://apps.extensions.modelcontextprotocol.io/api/)). Alexa+'s MCP Toolkit docs say it supports MCP Apps through a webview. The simulator hosts these views on its device screen, so you can try yours:
+
+- **Advertises support** (`extensions["io.modelcontextprotocol/ui"]`) when it connects, so servers that only expose view-enabled tools to capable clients show them.
+- **Shows the view** of the last view-bearing tool call in a turn, fed `tool-input` then `tool-result` like a spec-compliant host. The Tools card marks tools that declare a view (🖼).
+- **Answers the view's calls the way a host must:** `tools/call` only for tools whose `_meta.ui.visibility` includes `"app"` (anything else is refused, as the spec requires), `ui/message` becomes a new utterance to the brain (this is how a "Modify" button hands a change back to the assistant), and `ui/open-link` opens `https:` links only, after a confirm.
+- **Enforces the spec's Content-Security-Policy** (deny-by-default, plus whatever the resource declares in `_meta.ui.csp`) and shows a note in the log when a view breaks it, e.g. a `fetch` to an origin it didn't declare.
+- **Runs the view in the spec's two-origin sandbox:** the page is on `127.0.0.1:<port>` and a sandbox proxy is on `127.0.0.1:<port + 1>`, so the view can't reach the simulator's own origin or API.
+- **Shows a note instead of failing** when a declared view can't be shown (wrong MIME type, resource missing).
+
+| Env var | Purpose |
+| --- | --- |
+| `SIM_UI` | `on` (default) or `off`. Off advertises nothing and shows text only, which is what a host without MCP Apps does, so use it to test your server's text fallback. |
+| `SIM_SANDBOX_PORT` | the sandbox proxy's port (default `SIM_PORT + 1`) |
+
+**What this is and isn't.** It implements the MCP Apps *spec* host. It does not model Alexa's own webview: the Alexa docs only say a view renders "in the conversation view", so what Alexa+ enforces beyond the spec is unknown to us. The screen-shape picker under the device is for trying a view at different sizes, not a claim about any real device.
+
+**Brain support.** With the Claude brain the simulator makes the tool calls and has the full result, so views work. The Cursor brain makes tool calls itself and doesn't hand back the full result; the simulator will not re-call a tool to get it (a mutating tool would repeat its side effects), so with Cursor it shows a note that the view can't be shown.
 
 ## Voice (text-to-speech)
 
@@ -184,8 +205,11 @@ if (!report.passed) console.error(report.results.filter((r) => !r.pass));
 public/index.html   Browser UI: device-styled screen, mic (SpeechRecognition),
                      spoken replies, tool-call trace log
 public/tts.js         The page's voice: browser speechSynthesis, or /api/tts audio
-src/server.ts        HTTP API: /api/status, /api/turn, /api/reset, /api/tts
+public/host.js        GENERATED browser MCP Apps host (AppBridge); source in host/
+src/server.ts        HTTP API: /api/status, /api/turn, /api/reset, /api/tts, /api/ui/tool-call
 src/tts/              Text-to-speech providers (ElevenLabs), cache, route
+src/ui/               MCP Apps: view resolution, CSP, sandbox proxy server, routes
+host/                 Browser host source (bundled to public/host.js by scripts/build-host.mjs)
 src/session.ts        Owns account linking + the MCP connection
 src/link.ts            OAuth 2.1 + PKCE loopback flow (RFC 8252-style)
 src/discovery.ts        RFC 9728 / RFC 8414 / RFC 7591 discovery

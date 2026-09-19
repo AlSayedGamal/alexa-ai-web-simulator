@@ -7,7 +7,15 @@ export {
   type AuthorizationServerMetadata,
 } from "./discovery.js";
 export { linkAccount, type LinkOptions, type LinkResult } from "./link.js";
-export { connectMcp, callTool, type McpSession, type McpTool, type ToolCallTrace } from "./mcp.js";
+export {
+  connectMcp,
+  callTool,
+  type ConnectOptions,
+  type McpSession,
+  type McpTool,
+  type ToolCallResult,
+  type ToolCallTrace,
+} from "./mcp.js";
 export { McpSessionManager, type McpSessionManagerOptions } from "./session.js";
 export type { Brain, BrainTurnResult } from "./brains/types.js";
 export { createClaudeBrain, type ClaudeBrainOptions } from "./brains/claude.js";
@@ -25,3 +33,6 @@ export {
   type ConformanceResult,
   type ConformanceConfidence,
 } from "./conformance.js";
+export { buildCsp, type UiCspMeta } from "./ui/csp.js";
+export { UI_EXTENSION_ID, UI_MIME_TYPE, isAppCallable, uiResourceUri, uiVisibility } from "./ui/meta.js";
+export { readUiResource, resolveUiForTurn, type ResolvedUi, type UiPayload } from "./ui/resolve.js";
