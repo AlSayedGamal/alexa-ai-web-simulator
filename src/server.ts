@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Brain } from "./brains/types.js";
+import { HTML_SECURITY_HEADERS, guardRequest } from "./security.js";
 import type { McpSessionManager } from "./session.js";
 
 const DEFAULT_PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -24,10 +25,25 @@ function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+/** A client mistake, answered with `status` instead of being treated as a dead session. */
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
-  return chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString());
+  } catch {
+    throw new HttpError(400, "Request body is not valid JSON.");
+  }
 }
 
 export function createServer(options: CreateServerOptions): http.Server {
@@ -36,6 +52,12 @@ export function createServer(options: CreateServerOptions): http.Server {
 
   const server = http.createServer(async (req, res) => {
     try {
+      // The port is only known once we're listening (it may have been 0).
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : (options.port ?? 8790);
+      const guard = guardRequest(req, port);
+      if (!guard.ok) return json(res, guard.status, { error: guard.error });
+
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
 
       if (req.method === "GET" && path === "/api/status") {
@@ -75,12 +97,13 @@ export function createServer(options: CreateServerOptions): http.Server {
       }
 
       if (req.method === "GET" && (path === "/" || path === "/index.html")) {
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", ...HTML_SECURITY_HEADERS });
         return res.end(await readFile(join(publicDir, "index.html")));
       }
 
       json(res, 404, { error: "not found" });
     } catch (err) {
+      if (err instanceof HttpError) return json(res, err.status, { error: err.message });
       // A dead session (server restarted, token expired) should relink next turn.
       options.sessionManager.invalidate();
       await options.brain.reset?.();

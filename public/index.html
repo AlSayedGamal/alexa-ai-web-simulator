@@ -199,7 +199,7 @@ $("speak").addEventListener("click", (e) => {
   if (!speakReplies) speechSynthesis.cancel();
 });
 $("reset").addEventListener("click", async () => {
-  await fetch("/api/reset", { method: "POST" });
+  await fetch("/api/reset", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   $("log").innerHTML = ""; $("heard").textContent = "";
   $("reply").innerHTML = '<span class="hint">Type or say what you\'d like, e.g. one of the discovered tools on the right.</span>';
   screen.dataset.confirm = "false";
