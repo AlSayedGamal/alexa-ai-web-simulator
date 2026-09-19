@@ -1,0 +1,69 @@
+{
+  "name": "mcp-voice-simulator",
+  "version": "0.1.4",
+  "description": "Unofficial voice-style MCP client simulator — OAuth 2.1 + PKCE account linking against any spec-compliant MCP server, tool discovery, and pluggable LLM \"brains\" to drive it by voice-style utterances. Built to test servers made for Alexa+'s MCP Toolkit (partner-gated, not available to most developers); not affiliated with or endorsed by Amazon.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "mcp-voice-simulator": "./dist/cli.js",
+    "mcp-voice-simulator-conformance": "./dist/conformance-cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "public"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.0.0"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": "^0.127.0",
+    "@cursor/sdk": "^1.0.31"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "@cursor/sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.127.0",
+    "@cursor/sdk": "^1.0.31",
+    "@types/node": "^22.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlSayedGamal/mcp-voice-simulator.git"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "alexa-plus",
+    "voice-assistant",
+    "simulator",
+    "oauth",
+    "pkce"
+  ]
+}

@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # The peer-optional @anthropic-ai/sdk and @cursor/sdk are also
+      # devDependencies (for typechecking), which trips a known npm/arborist
+      # bug in some environments — legacy-peer-deps works around it without
+      # weakening what actually gets published (peerDependenciesMeta still
+      # marks both optional there).
+      - run: npm install --legacy-peer-deps
+
+      - run: npm run check

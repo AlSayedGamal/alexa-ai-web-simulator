@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP voice simulator (unofficial)</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --line: #2a313c; --text: #e6edf3; --muted: #8b949e;
+    --accent: #00caff; --ok: #3fb950; --err: #f85149; --screen: #05080d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, sans-serif; }
+  main { max-width: 1280px; margin: 0 auto; padding: 24px 16px; display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1100px) { main { grid-template-columns: 1000px minmax(0, 1fr); } }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+  .disclaimer { max-width: 1280px; margin: 12px auto 0; padding: 0 16px; color: var(--muted); font-size: 12px; }
+
+  /* A voice-and-screen device shape, not any specific real product. */
+  .device { background: #1c2128; border-radius: 28px; padding: 20px; border: 1px solid var(--line); }
+  .screen { position: relative; width: 100%; aspect-ratio: 2 / 1; background: var(--screen); border-radius: 10px; overflow: hidden;
+            display: flex; flex-direction: column; justify-content: center; padding: 5% 6%; container-type: inline-size; }
+  .ring { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: transparent; transition: background .2s, box-shadow .2s; }
+  .screen[data-state="listening"] .ring, .screen[data-state="thinking"] .ring { background: var(--accent); box-shadow: 0 0 24px 4px var(--accent); }
+  .screen[data-state="thinking"] .ring { animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  .heard { color: var(--muted); font-size: 3.2cqw; margin-bottom: 2cqw; min-height: 1.4em; }
+  .reply { font-size: 4.6cqw; line-height: 1.3; font-weight: 500; }
+  .hint { color: var(--muted); font-size: 3cqw; }
+  .confirm { margin-top: 3cqw; display: none; gap: 2cqw; }
+  .screen[data-confirm="true"] .confirm { display: flex; }
+
+  .controls { display: flex; gap: 8px; margin-top: 16px; }
+  input[type=text] { flex: 1; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: inherit; }
+  button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #002733; border-color: var(--accent); font-weight: 600; }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chips button { font-size: 13px; padding: 6px 10px; color: var(--muted); }
+
+  aside { display: grid; gap: 16px; align-content: start; min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .status { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 13px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--err); }
+  .log { max-height: 460px; overflow: auto; display: grid; gap: 10px; }
+  .turn .you { color: var(--muted); } .turn .reply { margin-top: 2px; font-size: 15px; font-weight: 400; }
+  details { margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+  summary { cursor: pointer; color: var(--accent); }
+  summary .ms { color: var(--muted); }
+  summary.error { color: var(--err); }
+  pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; font: 12px/1.4 ui-monospace, monospace; color: var(--muted); }
+  .tools { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tools span { font: 12px ui-monospace, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+</style>
+</head>
+<body>
+<main>
+  <section>
+    <h1>MCP voice simulator</h1>
+    <div class="device">
+      <div class="screen" id="screen" data-state="idle" data-confirm="false">
+        <div class="heard" id="heard"></div>
+        <div class="reply" id="reply"><span class="hint">Type or say what you'd like, e.g. one of the discovered tools on the right.</span></div>
+        <div class="confirm">
+          <button class="primary" data-say="Confirm">Confirm</button>
+          <button data-say="Cancel">Cancel</button>
+        </div>
+        <div class="ring"></div>
+      </div>
+      <form class="controls" id="form">
+        <button type="button" id="mic" title="Speak" aria-pressed="false">🎤</button>
+        <input type="text" id="input" placeholder="Say or type an utterance…" autocomplete="off" autofocus>
+        <button type="submit" class="primary" id="send">Send</button>
+        <button type="button" id="speak" aria-pressed="true" title="Speak replies aloud">🔊</button>
+        <button type="button" id="reset" title="Start a new conversation">↺</button>
+      </form>
+      <div class="chips" id="chips"></div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="card">
+      <h1>Connection</h1>
+      <div class="status" id="status">Connecting…</div>
+    </div>
+    <div class="card">
+      <h1>Tools discovered on the target MCP server</h1>
+      <div class="tools" id="tools"></div>
+    </div>
+    <div class="card">
+      <h1>Conversation &amp; MCP calls</h1>
+      <div class="log" id="log"></div>
+    </div>
+  </aside>
+</main>
+<p class="disclaimer">
+  Unofficial, community-built simulator for testing MCP servers built for Alexa+'s MCP Toolkit —
+  not affiliated with, endorsed by, or built using access to Amazon's Alexa AI CLI or MCP Toolkit,
+  which remain <a href="https://developer.amazon.com/docs/alexaplus/add-ons/home.html" style="color:inherit">restricted to select partners</a>.
+  This tool speaks the published OAuth 2.1 + PKCE and MCP Streamable HTTP specs, nothing more.
+</p>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const screen = $("screen"), input = $("input"), send = $("send");
+let speakReplies = true;
+let busy = false;
+let toolChipsBuilt = false;
+
+const setState = (state) => { screen.dataset.state = state; };
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+async function loadStatus() {
+  const s = await (await fetch("/api/status")).json();
+  $("status").innerHTML = s.linked
+    ? `<span><i class="dot ok"></i>Account linked</span><span>${esc(s.mcpUrl ?? "")}</span>` +
+      `<span>Brain: ${esc(s.brain ?? "")}</span>`
+    : `<span><i class="dot bad"></i>Not connected</span><span>${esc(s.error ?? "")}</span>`;
+  $("tools").innerHTML = (s.tools ?? []).map((t) => `<span title="${esc(t.description)}">${esc(t.name)}</span>`).join("");
+  if (!toolChipsBuilt && (s.tools ?? []).length) {
+    toolChipsBuilt = true;
+    $("chips").innerHTML = s.tools.slice(0, 4).map((t) =>
+      `<button data-say="${esc(t.description || t.name)}">${esc(t.name)}</button>`).join("");
+  }
+}
+
+// The mic must never hear the simulator's own spoken reply: that would turn the reply
+// into a new utterance, which gets answered, which the mic hears again, forever.
+let rec = null;
+let lastReply = "";
+let quietUntil = 0; // ignore recognition results until this timestamp (ms)
+
+const normalize = (s) => s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+const isEcho = (heard) => {
+  const h = normalize(heard);
+  return h.length > 0 && normalize(lastReply).includes(h);
+};
+
+function speak(text) {
+  lastReply = text;
+  if (!speakReplies || !("speechSynthesis" in window)) return;
+  rec?.abort();
+  speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  const done = () => { quietUntil = Date.now() + 1500; };
+  utterance.onend = done;
+  utterance.onerror = done;
+  quietUntil = Infinity;
+  speechSynthesis.speak(utterance);
+}
+
+function logTurn(utterance, data) {
+  const calls = (data.trace ?? []).map((t) =>
+    `<details><summary class="${t.isError ? "error" : ""}">${esc(t.tool)} <span class="ms">${t.ms} ms</span></summary>` +
+    `<pre>${esc(JSON.stringify(t.args))}\n→ ${esc(t.text)}</pre></details>`).join("");
+  const el = document.createElement("div");
+  el.className = "turn";
+  el.innerHTML = `<div class="you">You: ${esc(utterance)}</div><div class="reply">${esc(data.reply ?? data.error ?? "")}</div>${calls}`;
+  $("log").append(el);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+async function say(utterance) {
+  utterance = utterance.trim();
+  if (!utterance || busy) return;
+  busy = true; send.disabled = true;
+  $("heard").textContent = `“${utterance}”`;
+  setState("thinking");
+  try {
+    const res = await fetch("/api/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ utterance }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    $("reply").textContent = data.reply;
+    screen.dataset.confirm = String(data.awaitingConfirm);
+    logTurn(utterance, data);
+    speak(data.reply);
+  } catch (err) {
+    $("reply").textContent = "Sorry, something went wrong.";
+    logTurn(utterance, { error: err.message });
+    screen.dataset.confirm = "false";
+  } finally {
+    busy = false; send.disabled = false; setState("idle");
+    input.value = "";
+    loadStatus();
+  }
+}
+
+$("form").addEventListener("submit", (e) => { e.preventDefault(); say(input.value); });
+document.addEventListener("click", (e) => {
+  const phrase = e.target.closest("[data-say]")?.dataset.say;
+  if (phrase) say(phrase);
+});
+$("speak").addEventListener("click", (e) => {
+  speakReplies = !speakReplies;
+  e.currentTarget.setAttribute("aria-pressed", String(speakReplies));
+  if (!speakReplies) speechSynthesis.cancel();
+});
+$("reset").addEventListener("click", async () => {
+  await fetch("/api/reset", { method: "POST" });
+  $("log").innerHTML = ""; $("heard").textContent = "";
+  $("reply").innerHTML = '<span class="hint">Type or say what you\'d like, e.g. one of the discovered tools on the right.</span>';
+  screen.dataset.confirm = "false";
+});
+
+// Voice input (Chrome/Edge/Safari expose SpeechRecognition; others fall back to typing)
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (Recognition) {
+  rec = new Recognition();
+  rec.lang = "en-US";
+  rec.continuous = false;     // one utterance per mic press; never re-arm on our own
+  rec.interimResults = false;
+  rec.onstart = () => { setState("listening"); $("mic").setAttribute("aria-pressed", "true"); };
+  rec.onend = () => { if (!busy) setState("idle"); $("mic").setAttribute("aria-pressed", "false"); };
+  rec.onresult = (e) => {
+    const heard = e.results[0][0].transcript;
+    if (busy || Date.now() < quietUntil || isEcho(heard)) return; // our own spoken reply, or a stale result
+    say(heard);
+  };
+  $("mic").addEventListener("click", () => {
+    speechSynthesis.cancel();
+    quietUntil = 0;
+    try { rec.start(); } catch { /* already listening */ }
+  });
+} else {
+  $("mic").disabled = true;
+  $("mic").title = "Speech recognition isn't supported in this browser";
+}
+
+loadStatus();
+</script>
+</body>
+</html>
