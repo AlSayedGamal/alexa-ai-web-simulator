@@ -58,6 +58,8 @@
   aside { display: grid; gap: 16px; align-content: start; min-width: 0; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
   .status { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 13px; }
+  .status button, .status a.linkbtn { padding: 4px 12px; font-size: 13px; }
+  a.linkbtn { background: var(--accent); color: #002733; border: 1px solid var(--accent); border-radius: 8px; font-weight: 600; text-decoration: none; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
   .dot.ok { background: var(--ok); } .dot.bad { background: var(--err); }
   .log { max-height: 460px; overflow: auto; display: grid; gap: 10px; }
@@ -144,9 +146,62 @@ let toolChipsBuilt = false;
 const setState = (state) => { screen.dataset.state = state; };
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
+// While linking, the page polls so the link and its countdown stay current and the
+// outcome (linked, or timed out) shows up without a reload.
+let countdown = null, poll = null;
+let linkShown = null; // which login (link + expiry) is on screen, so polling doesn't rebuild the button under the cursor
+const stopLinkTimers = () => { clearInterval(countdown); clearTimeout(poll); countdown = poll = linkShown = null; };
+const span = (text) => { const el = document.createElement("span"); el.textContent = text; return el; };
+const statusDot = (kind) => { const el = document.createElement("i"); el.className = kind ? `dot ${kind}` : "dot"; return el; };
+const clock = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+
+function showLinking(s) {
+  poll = setTimeout(loadStatus, 1500);
+  const shown = `${s.linkUrl}|${s.linkExpiresAt}`;
+  if (shown === linkShown) return;
+  linkShown = shown;
+  const waiting = span("Waiting for you to link your account");
+  waiting.prepend(statusDot());
+  const parts = [waiting];
+  if (s.linkUrl) {
+    const open = document.createElement("a");
+    open.className = "linkbtn"; open.href = s.linkUrl; open.target = "_blank"; open.rel = "noopener noreferrer";
+    open.textContent = "Link account ↗";
+    parts.push(open);
+  } else {
+    parts.push(span("Open the login link printed in the terminal."));
+  }
+  const left = span("");
+  parts.push(left);
+  $("status").replaceChildren(...parts);
+
+  const expires = Date.parse(s.linkExpiresAt);
+  const tick = () => { const ms = expires - Date.now(); left.textContent = ms > 0 ? `Expires in ${clock(ms)}` : "Expiring…"; };
+  tick();
+  clearInterval(countdown);
+  countdown = setInterval(tick, 1000);
+}
+
+function showLinkFailed(s) {
+  const retry = document.createElement("button");
+  retry.textContent = "Try again";
+  retry.addEventListener("click", async () => {
+    retry.disabled = true;
+    await fetch("/api/relink", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    loadStatus();
+  });
+  const bad = span(s.linkTimedOut ? "Login timed out" : "Login failed");
+  bad.prepend(statusDot("bad"));
+  $("status").replaceChildren(bad, span(s.error ?? ""), retry);
+}
+
 async function loadStatus() {
+  clearTimeout(poll);
   const s = await (await fetch("/api/status")).json();
-  $("status").innerHTML = s.linked
+  if (!s.linking) stopLinkTimers();
+  if (s.linking) showLinking(s);
+  else if (s.linkFailed) showLinkFailed(s);
+  else $("status").innerHTML = s.linked
     ? `<span><i class="dot ok"></i>Account linked</span><span>${esc(s.mcpUrl ?? "")}</span>` +
       `<span>Brain: ${esc(s.brain ?? "")}</span><span>Voice: ${esc(s.tts?.name ?? "browser")}</span>` +
       `<span>Views: ${s.ui?.enabled ? "on" : "off"}</span>` +

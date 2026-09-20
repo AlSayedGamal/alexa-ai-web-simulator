@@ -6,7 +6,7 @@ export {
   type ProtectedResourceMetadata,
   type AuthorizationServerMetadata,
 } from "./discovery.js";
-export { linkAccount, type LinkOptions, type LinkResult } from "./link.js";
+export { DEFAULT_LINK_TIMEOUT_MS, LinkTimeoutError, linkAccount, type LinkOptions, type LinkResult } from "./link.js";
 export {
   connectMcp,
   callTool,
@@ -16,7 +16,7 @@ export {
   type ToolCallResult,
   type ToolCallTrace,
 } from "./mcp.js";
-export { McpSessionManager, type McpSessionManagerOptions } from "./session.js";
+export { McpSessionManager, type LinkStatus, type McpSessionManagerOptions } from "./session.js";
 export type { Brain, BrainTurnResult } from "./brains/types.js";
 export { createClaudeBrain, type ClaudeBrainOptions } from "./brains/claude.js";
 export { createCursorBrain, type CursorBrainOptions } from "./brains/cursor.js";

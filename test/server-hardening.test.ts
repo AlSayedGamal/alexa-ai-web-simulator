@@ -48,6 +48,7 @@ describe("local API guards", () => {
     const brain: Brain = { name: "test", turn: turn as Brain["turn"], reset: vi.fn() };
     const sessionManager = {
       mcpUrl: "https://mcp.example.com/mcp",
+      linkStatus: async () => ({ state: "linked" }),
       ensureSession: async () => ({ tools: [] }),
       invalidate,
     } as unknown as McpSessionManager;

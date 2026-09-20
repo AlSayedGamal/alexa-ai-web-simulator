@@ -73,6 +73,7 @@ describe("POST /api/tts", () => {
     const brain: Brain = { name: "test", turn: async () => ({ reply: "hi", trace: [] }) };
     const sessionManager = {
       mcpUrl: "https://mcp.example.com/mcp",
+      linkStatus: async () => ({ state: "linked" }),
       ensureSession: async () => ({ tools: [] }),
       invalidate: () => {},
     } as unknown as McpSessionManager;

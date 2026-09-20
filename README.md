@@ -55,8 +55,13 @@ mcp-voice-simulator
 ```
 
 Open the printed `http://127.0.0.1:8790` URL. It links an account against
-your server (opening the authorize URL for you to complete in a browser),
-discovers its tools, and lets you type or speak utterances.
+your server, discovers its tools, and lets you type or speak utterances.
+
+Linking is done in your browser: the page shows a **Link account** button with
+a countdown (the URL is also printed in the terminal). If the login isn't
+finished in time, the page says so and offers **Try again**, which starts a
+new attempt. A failed attempt is never kept, so reloading the page also starts
+a fresh one.
 
 If your server doesn't implement RFC 7591 dynamic client registration (most
 don't — it's optional even in a fully spec-compliant setup), set
@@ -70,6 +75,7 @@ bearer token and want to skip account linking entirely, set
 | `MCP_CLIENT_ID` | OAuth client id, if your server has no dynamic registration |
 | `MCP_BEARER_TOKEN` | skip account linking entirely |
 | `SIM_PORT` | default `8790` |
+| `SIM_LINK_TIMEOUT_MS` | how long to wait for you to finish logging in, in milliseconds (default `300000`, 5 minutes). Servers that make you connect several providers on first use can need every minute of it |
 | `SIM_UI`, `SIM_SANDBOX_PORT` | MCP Apps views, see [On-screen views](#on-screen-views-mcp-apps) |
 | `SIM_TTS` and `ELEVENLABS_*` | optional server-side voice, see [Voice](#voice-text-to-speech) |
 | `SIM_BRAIN` | force `claude` or `cursor` (default: cursor if `CURSOR_API_KEY` is set, else claude) |
@@ -206,11 +212,11 @@ public/index.html   Browser UI: device-styled screen, mic (SpeechRecognition),
                      spoken replies, tool-call trace log
 public/tts.js         The page's voice: browser speechSynthesis, or /api/tts audio
 public/host.js        GENERATED browser MCP Apps host (AppBridge); source in host/
-src/server.ts        HTTP API: /api/status, /api/turn, /api/reset, /api/tts, /api/ui/tool-call
+src/server.ts        HTTP API: /api/status, /api/relink, /api/turn, /api/reset, /api/tts, /api/ui/tool-call
 src/tts/              Text-to-speech providers (ElevenLabs), cache, route
 src/ui/               MCP Apps: view resolution, CSP, sandbox proxy server, routes
 host/                 Browser host source (bundled to public/host.js by scripts/build-host.mjs)
-src/session.ts        Owns account linking + the MCP connection
+src/session.ts        Owns account linking (the pending login, its expiry, retries) + the MCP connection
 src/link.ts            OAuth 2.1 + PKCE loopback flow (RFC 8252-style)
 src/discovery.ts        RFC 9728 / RFC 8414 / RFC 7591 discovery
 src/mcp.ts             Thin @modelcontextprotocol/client wrapper
