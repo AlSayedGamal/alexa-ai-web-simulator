@@ -1,6 +1,6 @@
 {
   "name": "mcp-voice-simulator",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Unofficial voice-style MCP client simulator — OAuth 2.1 + PKCE account linking against any spec-compliant MCP server, tool discovery, and pluggable LLM \"brains\" to drive it by voice-style utterances. Built to test servers made for Alexa+'s MCP Toolkit (partner-gated, not available to most developers); not affiliated with or endorsed by Amazon.",
   "type": "module",
   "license": "MIT",

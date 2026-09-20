@@ -25,11 +25,27 @@ export interface LinkOptions {
    *  required for servers (this library's own origin included) that don't
    *  implement dynamic registration and expect a pre-bootstrapped client. */
   clientId?: string;
-  /** How long to wait for the human to complete login in their browser. */
+  /** How long to wait for the human to complete login in their browser. Default 2 minutes. */
   timeoutMs?: number;
   /** Called with the URL to open once it's built. Defaults to console.log —
    *  pass your own to open a browser automatically or show it in a UI. */
   onAuthorizeUrl?: (url: string) => void;
+}
+
+/** How long linkAccount() waits for the login redirect when no `timeoutMs` is given. */
+export const DEFAULT_LINK_TIMEOUT_MS = 120_000;
+
+/** The human didn't finish logging in within `timeoutMs`. */
+export class LinkTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Timed out after ${timeoutMs}ms waiting for the login redirect`);
+    this.name = "LinkTimeoutError";
+  }
+}
+
+/** What linkAccount() does with the URL when `onAuthorizeUrl` isn't given. */
+export function logAuthorizeUrl(url: string): void {
+  console.log(`Open this URL to link your account:\n${url}`);
 }
 
 export interface LinkResult {
@@ -54,7 +70,7 @@ function startLoopbackServer(): Promise<{
         waitForCode: (expectedState, timeoutMs) =>
           new Promise((resolveCode, rejectCode) => {
             const timer = setTimeout(() => {
-              rejectCode(new Error(`Timed out after ${timeoutMs}ms waiting for the login redirect`));
+              rejectCode(new LinkTimeoutError(timeoutMs));
             }, timeoutMs);
             server.on("request", (req, res) => {
               const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
@@ -85,7 +101,7 @@ function startLoopbackServer(): Promise<{
 
 /** Runs the full OAuth 2.1 + PKCE loopback flow and returns a bearer token. */
 export async function linkAccount(options: LinkOptions): Promise<LinkResult> {
-  const timeoutMs = options.timeoutMs ?? 120_000;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_LINK_TIMEOUT_MS;
 
   const resource = await discoverProtectedResource(options.mcpUrl);
   const issuer = resource.authorization_servers![0];
@@ -118,9 +134,7 @@ export async function linkAccount(options: LinkOptions): Promise<LinkResult> {
       resource: options.mcpUrl, // RFC 8707 — binds the token's audience where the server checks it
     }).toString();
 
-    (options.onAuthorizeUrl ?? ((url) => console.log(`Open this URL to link your account:\n${url}`)))(
-      authorizeUrl.toString(),
-    );
+    (options.onAuthorizeUrl ?? logAuthorizeUrl)(authorizeUrl.toString());
 
     const code = await loopback.waitForCode(state, timeoutMs);
 

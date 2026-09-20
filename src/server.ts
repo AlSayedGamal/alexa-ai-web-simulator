@@ -1,6 +1,6 @@
 /**
- * HTTP server: a tiny API (`/api/status`, `/api/turn`, `/api/reset`, `/api/tts`,
- * `/api/ui/tool-call`) plus the static browser UI in public/, wired to a Brain
+ * HTTP server: a tiny API (`/api/status`, `/api/relink`, `/api/turn`, `/api/reset`,
+ * `/api/tts`, `/api/ui/tool-call`) plus the static browser UI in public/, wired to a Brain
  * and an McpSessionManager. With MCP Apps view support on, it also runs the
  * sandbox proxy on a second port (see ui/sandbox.ts).
  */
@@ -108,14 +108,37 @@ export function createServer(options: CreateServerOptions): http.Server {
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
 
       if (req.method === "GET" && path === "/api/status") {
+        const common = {
+          mcpUrl: options.sessionManager.mcpUrl,
+          brain: options.brain.name,
+          tts: { name: tts.name },
+          ui: ui.status(),
+        };
+        // Doesn't wait for the human to finish logging in, so the page can show the link meanwhile.
+        const link = await options.sessionManager.linkStatus();
+        if (link.state === "pending") {
+          return json(res, 200, {
+            linked: false,
+            ...common,
+            linking: true,
+            ...(link.url ? { linkUrl: link.url } : {}),
+            linkExpiresAt: link.expiresAt.toISOString(),
+          });
+        }
+        if (link.state === "failed") {
+          return json(res, 200, {
+            linked: false,
+            ...common,
+            linkFailed: true,
+            linkTimedOut: link.timedOut,
+            error: link.error,
+          });
+        }
         try {
           const session = await options.sessionManager.ensureSession();
           return json(res, 200, {
             linked: true,
-            mcpUrl: options.sessionManager.mcpUrl,
-            brain: options.brain.name,
-            tts: { name: tts.name },
-            ui: ui.status(),
+            ...common,
             tools: session.tools.map((t) => ({
               name: t.name,
               description: t.description ?? "",
@@ -125,13 +148,18 @@ export function createServer(options: CreateServerOptions): http.Server {
         } catch (err) {
           return json(res, 200, {
             linked: false,
-            mcpUrl: options.sessionManager.mcpUrl,
-            brain: options.brain.name,
-            tts: { name: tts.name },
-            ui: ui.status(),
+            ...common,
             error: err instanceof Error ? err.message : String(err),
           });
         }
+      }
+
+      if (req.method === "POST" && path === "/api/relink") {
+        // A new login means a new token, which the brain may be holding the old one of.
+        options.sessionManager.relink();
+        await options.brain.reset?.();
+        lastAwaitingConfirm = false;
+        return json(res, 200, { ok: true });
       }
 
       if (req.method === "POST" && path === "/api/turn") {

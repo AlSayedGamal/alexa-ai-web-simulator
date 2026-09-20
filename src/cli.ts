@@ -32,10 +32,19 @@ if (sandboxPort !== undefined && (!Number.isInteger(sandboxPort) || sandboxPort 
   fail(`SIM_SANDBOX_PORT must be a port number (got "${sandboxPortRaw}").`);
 }
 
+// First-time linking can take a while (consent screens for each connected provider), so longer than the library's 2 minutes.
+const DEFAULT_LINK_TIMEOUT_MS = 300_000;
+const MAX_TIMER_MS = 2_147_483_647; // setTimeout's limit; anything larger fires immediately
+const linkTimeoutRaw = env("SIM_LINK_TIMEOUT_MS");
+const linkTimeoutMs = linkTimeoutRaw === undefined ? DEFAULT_LINK_TIMEOUT_MS : Number(linkTimeoutRaw);
+if (!Number.isInteger(linkTimeoutMs) || linkTimeoutMs <= 0 || linkTimeoutMs > MAX_TIMER_MS) {
+  fail(`SIM_LINK_TIMEOUT_MS must be a number of milliseconds between 1 and ${MAX_TIMER_MS} (got "${linkTimeoutRaw}").`);
+}
+
 const sessionManager = new McpSessionManager({
   mcpUrl,
   bearerToken: env("MCP_BEARER_TOKEN"),
-  link: { clientId: env("MCP_CLIENT_ID") },
+  link: { clientId: env("MCP_CLIENT_ID"), timeoutMs: linkTimeoutMs },
   ui: uiEnabled,
 });
 
