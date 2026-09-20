@@ -12,6 +12,13 @@ jobs:
   publish:
     if: github.event.pull_request.merged == true && github.event.pull_request.merged_by.login == 'AlSayedGamal'
     runs-on: ubuntu-latest
+    # Publishes with npm trusted publishing (OIDC), so there is no NPM_TOKEN to
+    # expire or to need a one-time password. The trusted publisher is set up on
+    # npmjs.com for this repository and this workflow file name; renaming
+    # publish.yml breaks it. See https://docs.npmjs.com/trusted-publishers
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -21,6 +28,9 @@ jobs:
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10.
+      - run: npm install -g npm@^11.5.1
 
       # See ci.yml for why --legacy-peer-deps is needed here.
       - run: npm install --legacy-peer-deps
@@ -41,6 +51,5 @@ jobs:
 
       - name: Publish to npm
         if: steps.version_check.outputs.already_published == 'false'
+        # No NODE_AUTH_TOKEN on purpose: a token, if set, would be used instead of OIDC.
         run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
