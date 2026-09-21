@@ -43,6 +43,17 @@ natural language needs an LLM unless you write one for your own specific
 tools. `examples/scripted-brain.ts` shows exactly that pattern; copy it for
 yours.
 
+![Demo of the simulator against a sample MCP server](https://raw.githubusercontent.com/AlSayedGamal/mcp-voice-simulator/main/docs/demo.gif)
+
+The clip is recorded against a **fictional** sample task tracker (`npm run demo`),
+not a real application's API. It walks through account-linked status, tool
+discovery (🖼 marks tools that declare a `ui://` view), a typed utterance, the
+thinking ring, MCP call traces, the MCP Apps view on the device screen,
+`tools/call` from the view, `ui/message` from the view, Confirm, and the
+screen-shape picker.
+
+To re-record: `npm run demo:record` (needs Playwright Chromium; writes `docs/demo.gif` and `docs/demo.mp4`).
+
 ## Quickstart (CLI)
 
 ```bash

@@ -1,6 +1,6 @@
 {
   "name": "mcp-voice-simulator",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Unofficial voice-style MCP client simulator — OAuth 2.1 + PKCE account linking against any spec-compliant MCP server, tool discovery, and pluggable LLM \"brains\" to drive it by voice-style utterances. Built to test servers made for Alexa+'s MCP Toolkit (partner-gated, not available to most developers); not affiliated with or endorsed by Amazon.",
   "type": "module",
   "license": "MIT",
@@ -30,7 +30,9 @@
     "test": "vitest run",
     "check": "npm run verify:host && npm run typecheck && npm test",
     "build:host": "node scripts/build-host.mjs",
-    "verify:host": "node scripts/build-host.mjs --check"
+    "verify:host": "node scripts/build-host.mjs --check",
+    "demo": "tsx examples/run-demo.ts",
+    "demo:record": "tsx examples/record-demo.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.0.0"
